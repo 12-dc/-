@@ -4,25 +4,61 @@ OCR表格解析模块
 从图片中识别表格内容，提取指定人员的工作内容
 """
 import re
+import os
 from rapidocr_onnxruntime import RapidOCR
+from PIL import Image
+
+# 全局OCR引擎（只初始化一次）
+_global_ocr = None
+
+
+def get_global_ocr():
+    """获取全局OCR引擎，懒加载"""
+    global _global_ocr
+    if _global_ocr is None:
+        _global_ocr = RapidOCR()
+    return _global_ocr
+
+
+def preprocess_image(image_path, max_width=1200):
+    """图片预处理：缩小尺寸，加快OCR速度。返回处理后的图片路径"""
+    try:
+        img = Image.open(image_path)
+        w, h = img.size
+        if w > max_width:
+            ratio = max_width / w
+            new_h = int(h * ratio)
+            img = img.resize((max_width, new_h), Image.LANCZOS)
+            # 保存到临时文件
+            base, ext = os.path.splitext(image_path)
+            new_path = f"{base}_small{ext}"
+            img.save(new_path, quality=95)
+            return new_path
+        return image_path
+    except Exception:
+        return image_path
 
 
 class OCRParser:
-    def __init__(self, target_name="陈子怡", text_corrections=None):
+    def __init__(self, target_name="陈子怡", text_corrections=None, use_global_ocr=True):
         """
         Args:
             target_name: 要提取的人员姓名
             text_corrections: OCR常见错误替换字典 {错误词: 正确词}
+            use_global_ocr: 是否使用全局共享的OCR引擎
         """
         self.target_name = target_name
         self.text_corrections = text_corrections or {}
-        self._ocr = None
+        self.use_global_ocr = use_global_ocr
+        self._local_ocr = None
 
     @property
     def ocr(self):
-        if self._ocr is None:
-            self._ocr = RapidOCR()
-        return self._ocr
+        if self.use_global_ocr:
+            return get_global_ocr()
+        if self._local_ocr is None:
+            self._local_ocr = RapidOCR()
+        return self._local_ocr
 
     def _correct_text(self, text):
         """应用OCR常见错误修正"""
@@ -318,7 +354,15 @@ class OCRParser:
                 'found': True/False
             }
         """
-        blocks = self._get_text_blocks(image_path)
+        # 图片预处理：缩小尺寸加快OCR
+        processed_path = preprocess_image(image_path)
+        blocks = self._get_text_blocks(processed_path)
+        # 清理临时文件
+        if processed_path != image_path and os.path.exists(processed_path):
+            try:
+                os.remove(processed_path)
+            except Exception:
+                pass
         if not blocks:
             return {'found': False, 'reason': 'OCR未识别到文本', 'image': image_path}
 

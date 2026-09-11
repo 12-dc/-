@@ -16,12 +16,20 @@ app = Flask(__name__)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
-from ocr_parser import OCRParser
+from ocr_parser import OCRParser, get_global_ocr
 from excel_filler import ExcelFiller
 
 # 临时目录（线上环境用 /tmp，本地用 temp）
 TEMP_DIR = os.environ.get('TEMP_DIR', os.path.join(SCRIPT_DIR, 'temp'))
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+# 应用启动时预加载OCR模型（避免第一次请求超时）
+print('正在预加载OCR模型...', flush=True)
+try:
+    get_global_ocr()
+    print('OCR模型加载完成', flush=True)
+except Exception as e:
+    print(f'OCR模型预加载失败: {e}', flush=True)
 
 
 @app.route('/')
